@@ -1193,6 +1193,34 @@ export default class QuildenSyncPlugin extends Plugin {
   get hasSavedPassword(): boolean {
     return !!this.loadSavedPassword();
   }
+
+  // ── SyncState localStorage helpers ───────────────────────────────────────
+  // Stored device-locally so iCloud (or any other vault sync) can't overwrite
+  // sync progress saved on this device.
+  private syncStateStorageKey(): string {
+    return `quilden:syncstate:${this.settings.repoOwner}/${this.settings.repoName}/${this.settings.branch}`;
+  }
+
+  private saveSyncStateToLocalStorage(): void {
+    try {
+      const key = this.syncStateStorageKey();
+      window.localStorage.setItem(key, JSON.stringify(this.syncState));
+    } catch { /* localStorage unavailable */ }
+  }
+
+  private loadSyncStateFromLocalStorage(): { repoKey: string; files: Record<string, SyncedFileState> } | null {
+    try {
+      const key = this.syncStateStorageKey();
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.repoKey === "string" && typeof parsed.files === "object") {
+        return parsed as { repoKey: string; files: Record<string, SyncedFileState> };
+      }
+      return null;
+    } catch { return null; }
+  }
+
   private syncState: { repoKey: string; files: Record<string, SyncedFileState> } = {
     repoKey: "",
     files: {},
@@ -1482,9 +1510,9 @@ export default class QuildenSyncPlugin extends Plugin {
 
     if (stored && "settings" in stored) {
       this.settings = Object.assign({}, DEFAULT_SETTINGS, stored.settings ?? {});
+      // Migration: data.json syncState (may be stale if iCloud overwrote it).
+      // Will be superseded by localStorage state after settings are applied.
       const rawSyncState = stored.syncState ?? { repoKey: "", files: {} };
-      // Migrate: old keys had an ":enc" or ":plain" suffix — strip it so the
-      // stored repoKey matches the new format and syncState is preserved.
       this.syncState = {
         repoKey: rawSyncState.repoKey.replace(/:(enc|plain)$/, ""),
         files: rawSyncState.files,
@@ -1502,13 +1530,32 @@ export default class QuildenSyncPlugin extends Plugin {
       excludePatterns: this.normalizeExcludePatterns(this.settings.excludePatterns),
     };
 
+    // Prefer localStorage syncState (device-local, immune to iCloud overwrite).
+    // localStorage key uses the repo coordinates from settings, which are now set.
+    const lsSyncState = this.loadSyncStateFromLocalStorage();
+    if (lsSyncState && Object.keys(lsSyncState.files).length >= Object.keys(this.syncState.files).length) {
+      this.syncState = {
+        repoKey: lsSyncState.repoKey.replace(/:(enc|plain)$/, ""),
+        files: lsSyncState.files,
+      };
+      console.log(`[LM] loadSettings: using localStorage syncState (${Object.keys(lsSyncState.files).length} files)`);
+    } else {
+      console.log(`[LM] loadSettings: using data.json syncState (${Object.keys(this.syncState.files).length} files); localStorage had ${lsSyncState ? Object.keys(lsSyncState.files).length : 0}`);
+    }
+
     this.ensureSyncStateRepoKey();
+    console.log(`[LM] loadSettings: final syncState key="${this.syncState.repoKey}" files=${Object.keys(this.syncState.files).length}`);
   }
 
   private async savePluginData() {
+    // Persist syncState to device-local localStorage first (primary store).
+    // This prevents iCloud (or any other vault-sync) from overwriting sync
+    // progress saved on this device when it pushes an older data.json.
+    this.saveSyncStateToLocalStorage();
+
     const data: PersistedPluginData = {
       settings: this.settings,
-      syncState: this.syncState,
+      syncState: this.syncState, // keep in data.json for migration / other devices
     };
     if (this.encryptionVerifyToken) data.encryptionVerifyToken = this.encryptionVerifyToken;
     if (this.syncHistory.length > 0) data.syncHistory = this.syncHistory;
@@ -2063,8 +2110,18 @@ export default class QuildenSyncPlugin extends Plugin {
 
   private async pushChanges(api: GitHubAPI, scope: "full" | "incremental" = "full") {
     const allVaultFiles = this.app.vault.getFiles();
+    const preEnsureCount = Object.keys(this.syncState.files).length;
+    const preEnsureKey = this.syncState.repoKey;
     this.ensureSyncStateRepoKey();
+    const postEnsureCount = Object.keys(this.syncState.files).length;
+    console.log(`[LM] pushChanges: syncState before ensureKey: key="${preEnsureKey}" files=${preEnsureCount}; after: key="${this.syncState.repoKey}" files=${postEnsureCount}; computed="${this.getRepoSyncKey()}"`);
+    if (postEnsureCount === 0 && preEnsureCount > 0) {
+      console.warn(`[LM] BUG: pushChanges ensureSyncStateRepoKey() wiped ${preEnsureCount} entries!`);
+    }
+    const prePruneCount = Object.keys(this.syncState.files).length;
     this.pruneSyncState(allVaultFiles);
+    const postPruneCount = Object.keys(this.syncState.files).length;
+    console.log(`[LM] pushChanges: after pruneSyncState: ${postPruneCount} entries (pruned ${prePruneCount - postPruneCount} stale paths from ${allVaultFiles.length} vault files)`);
 
     // Decide which files to push
     let candidateFiles = allVaultFiles.filter((f) => !this.shouldExclude(f.path));

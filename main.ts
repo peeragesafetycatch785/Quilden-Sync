@@ -1482,7 +1482,13 @@ export default class QuildenSyncPlugin extends Plugin {
 
     if (stored && "settings" in stored) {
       this.settings = Object.assign({}, DEFAULT_SETTINGS, stored.settings ?? {});
-      this.syncState = stored.syncState ?? { repoKey: "", files: {} };
+      const rawSyncState = stored.syncState ?? { repoKey: "", files: {} };
+      // Migrate: old keys had an ":enc" or ":plain" suffix — strip it so the
+      // stored repoKey matches the new format and syncState is preserved.
+      this.syncState = {
+        repoKey: rawSyncState.repoKey.replace(/:(enc|plain)$/, ""),
+        files: rawSyncState.files,
+      };
       this.encryptionVerifyToken = stored.encryptionVerifyToken ?? null;
       this.syncHistory = stored.syncHistory ?? [];
     } else {

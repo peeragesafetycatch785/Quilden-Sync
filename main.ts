@@ -1160,6 +1160,7 @@ export default class QuildenSyncPlugin extends Plugin {
   private statusBarEl: HTMLElement | null = null;
   private statusIconEl: HTMLElement | null = null;
   private statusMsgEl: HTMLElement | null = null;
+  private ribbonEl: HTMLElement | null = null;
   private syncHistory: SyncHistoryEntry[] = [];
   private lastSyncTime: Date | null = null;
   // Accumulates paths during a sync run, reset at start of runSync
@@ -1248,7 +1249,7 @@ export default class QuildenSyncPlugin extends Plugin {
     this.statusMsgEl = this.statusBarEl.createSpan({ cls: "lm-status-msg" });
     this.updateStatusBar("idle");
 
-    this.addRibbonIcon("refresh-cw", "Quilden Sync", async () => {
+    this.ribbonEl = this.addRibbonIcon("refresh-cw", "Quilden Sync", async () => {
       await this.runSync();
     });
 
@@ -1586,6 +1587,18 @@ export default class QuildenSyncPlugin extends Plugin {
   }
 
   updateStatusBar(status: "idle" | "syncing" | "done" | "error") {
+    // Ribbon icon: spin while syncing, regardless of notification mode
+    if (this.ribbonEl) {
+      const svgEl = this.ribbonEl.querySelector("svg");
+      if (svgEl) {
+        if (status === "syncing") {
+          svgEl.addClass("lm-ribbon-spinning");
+        } else {
+          svgEl.removeClass("lm-ribbon-spinning");
+        }
+      }
+    }
+
     if (!this.statusIconEl) return;
     const loc = this.settings.notificationLocation ?? "notice";
 

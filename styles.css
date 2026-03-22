@@ -23,6 +23,12 @@
   animation: lm-spin 0.9s linear infinite;
 }
 
+/* Ribbon icon spin */
+.lm-ribbon-spinning {
+  animation: lm-spin 0.9s linear infinite;
+  transform-origin: center;
+}
+
 .lm-status-msg {
   font-size: 11px;
   color: var(--text-muted);

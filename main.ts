@@ -1445,6 +1445,21 @@ export default class QuildenSyncPlugin extends Plugin {
 
     this.addSettingTab(new QuildenSyncSettingTab(this.app, this));
 
+    // Handle OAuth deep link from browser: obsidian://quilden-auth?token=...&login=...
+    this.registerObsidianProtocolHandler("quilden-auth", async (params) => {
+      const token = typeof params.token === "string" ? params.token : "";
+      const login = typeof params.login === "string" ? params.login : "";
+      const refreshToken = typeof params.refreshToken === "string" ? params.refreshToken : "";
+      if (!token || !login) return;
+      this.settings.githubToken = token;
+      this.settings.githubRefreshToken = refreshToken;
+      this.settings.githubUsername = login;
+      await this.saveSettings();
+      new Notice(`Quilden Sync: Connected as @${login} ✓`);
+      // Refresh open settings tab if visible
+      (this.app as any).setting?.activeTab?.display?.();
+    });
+
     // Encrypted-file guard — intercept opening any file with QENC content
     this.registerEvent(
       this.app.workspace.on("file-open", async (file) => {
@@ -4071,20 +4086,15 @@ class QuildenSyncSettingTab extends PluginSettingTab {
     }
 
     // ── GitHub OAuth flow ──────────────────────────────────────────
-    let pollCount = 0;
-    const MAX_POLLS = 100; // ~5 minutes at 3 s intervals
-
-    const stopPolling = () => {
-      this.stopActivePolling();
-    };
+    // Stateless deep-link flow: after OAuth, quilden.com redirects the
+    // browser to obsidian://quilden-auth?token=...&login=... which fires
+    // the registerObsidianProtocolHandler registered in onload().
 
     new Setting(containerEl)
       .setName("GitHub account")
       .setDesc("Sign in with GitHub through Quilden. You choose exactly which repositories to share.")
       .addButton((btn) =>
         btn.setButtonText("Connect with GitHub").setCta().onClick(async () => {
-          stopPolling();
-          pollCount = 0;
           errorEl.setText("");
 
           const state = Array.from(crypto.getRandomValues(new Uint8Array(18)))
@@ -4105,10 +4115,9 @@ class QuildenSyncSettingTab extends PluginSettingTab {
             // fall back to redirect flow
           }
           if (this.renderGeneration !== generation || !containerEl.isConnected || !btn.buttonEl.isConnected) return;
-          console.log("[LM] opening OAuth URL:", githubOAuthUrl);
+
           const authWindow = window.open(githubOAuthUrl, "_blank");
           if (!authWindow) {
-            // Popup blocked — show a clickable link and still start polling
             errorEl.empty();
             errorEl.appendText("Popup blocked. ");
             const link = errorEl.createEl("a", {
@@ -4120,50 +4129,16 @@ class QuildenSyncSettingTab extends PluginSettingTab {
           }
 
           btn.setDisabled(true);
-          btn.setButtonText("Waiting for GitHub…");
-          statusEl.setText("Complete sign-in in the browser window, then return here.");
-
-          this.activePollingTimer = window.setInterval(async () => {
-            pollCount++;
-            if (pollCount > MAX_POLLS) {
-              stopPolling();
+          btn.setButtonText("Waiting…");
+          statusEl.setText("Complete sign-in in the browser — Obsidian will update automatically.");
+          // Re-enable button after 5 minutes in case something went wrong
+          window.setTimeout(() => {
+            if (btn.buttonEl.isConnected) {
               btn.setDisabled(false);
               btn.setButtonText("Connect with GitHub");
               statusEl.setText("");
-              errorEl.setText("Timed out. Please try again.");
-              return;
             }
-
-            try {
-              const res = await requestUrl({
-                url: `${QUILDEN_BASE}/api/auth/plugin-token?state=${state}`,
-                method: "GET",
-              });
-              if (this.renderGeneration !== generation || !containerEl.isConnected) {
-                stopPolling();
-                return;
-              }
-              const data = res.json as { status: string; token?: string; refreshToken?: string | null; login?: string };
-
-              if (data.status === "ok" && data.token && data.login) {
-                stopPolling();
-                this.plugin.settings.githubToken = data.token;
-                this.plugin.settings.githubRefreshToken = data.refreshToken ?? "";
-                this.plugin.settings.githubUsername = data.login;
-                await this.plugin.saveSettings();
-                new Notice(`Quilden Sync: Connected as @${data.login} ✓`);
-                this.display();
-              } else if (data.status === "expired") {
-                stopPolling();
-                btn.setDisabled(false);
-                btn.setButtonText("Connect with GitHub");
-                statusEl.setText("");
-                errorEl.setText("Session expired. Please try again.");
-              }
-            } catch {
-              // Network error — keep trying
-            }
-          }, 3000);
+          }, 5 * 60 * 1000);
         })
       );
 

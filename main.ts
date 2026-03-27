@@ -371,8 +371,18 @@ const GH_HEADERS = {
   "User-Agent": "quilden-sync/1.0",
 };
 
+const GITEA_HEADERS = {
+  Accept: "application/json",
+  "User-Agent": "quilden-sync/1.0",
+};
+
 function ghHeaders(token: string, extra?: Record<string, string>): Record<string, string> {
   return { ...GH_HEADERS, Authorization: `Bearer ${token}`, ...extra };
+}
+
+function apiHeaders(token: string, apiBase: string, extra?: Record<string, string>): Record<string, string> {
+  const base = apiBase.includes("api.github.com") ? GH_HEADERS : GITEA_HEADERS;
+  return { ...base, Authorization: `token ${token}`, ...extra };
 }
 
 function bytesToHex(bytes: Uint8Array): string {
@@ -462,7 +472,7 @@ class GitHubAPI {
       res = await requestUrl({
         url,
         method,
-        headers: ghHeaders(this.token, body ? { "Content-Type": "application/json" } : {}),
+        headers: apiHeaders(this.token, this.apiBase, body ? { "Content-Type": "application/json" } : {}),
         body: body ? JSON.stringify(body) : undefined,
         throw: false,
       });
@@ -508,7 +518,7 @@ class GitHubAPI {
     const res = await requestUrl({
       url: `${apiBase}/user`,
       method: "GET",
-      headers: ghHeaders(token),
+      headers: apiHeaders(token, apiBase),
       throw: false,
     });
     if (res.status !== 200) throw new Error(`Invalid token (${res.status})`);
@@ -520,7 +530,7 @@ class GitHubAPI {
     const url = isGitea
       ? `${apiBase}/repos/search?limit=50&sort=newest&token=${encodeURIComponent(token)}`
       : `${apiBase}/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator`;
-    const res = await requestUrl({ url, method: "GET", headers: ghHeaders(token), throw: false });
+    const res = await requestUrl({ url, method: "GET", headers: apiHeaders(token, apiBase), throw: false });
     const scopes = res.headers?.["x-oauth-scopes"] ?? "n/a";
     const remaining = res.headers?.["x-ratelimit-remaining"] ?? "?";
     const resetEpoch = res.headers?.["x-ratelimit-reset"];
@@ -547,7 +557,7 @@ class GitHubAPI {
     const res = await requestUrl({
       url: `${apiBase}/user/repos`,
       method: "POST",
-      headers: ghHeaders(token, { "Content-Type": "application/json" }),
+      headers: apiHeaders(token, apiBase, { "Content-Type": "application/json" }),
       body: JSON.stringify({ name, private: isPrivate, auto_init: true }),
       throw: false,
     });
@@ -559,7 +569,7 @@ class GitHubAPI {
     const res = await requestUrl({
       url: `${apiBase}/repos/${owner}/${repo}/branches?per_page=100`,
       method: "GET",
-      headers: ghHeaders(token),
+      headers: apiHeaders(token, apiBase),
       throw: false,
     });
     if (res.status >= 400) throw new Error(`${res.status}: ${res.json?.message ?? "failed"}`);
@@ -2531,7 +2541,7 @@ export default class QuildenSyncPlugin extends Plugin {
     const tokenCheck = await requestUrl({
       url: `${apiBase}/user`,
       method: "GET",
-      headers: ghHeaders(this.settings.githubToken),
+      headers: apiHeaders(this.settings.githubToken, apiBase),
       throw: false,
     });
 
@@ -2557,7 +2567,7 @@ export default class QuildenSyncPlugin extends Plugin {
     const repoCheck = await requestUrl({
       url: repoUrl,
       method: "GET",
-      headers: ghHeaders(this.settings.githubToken),
+      headers: apiHeaders(this.settings.githubToken, apiBase),
       throw: false,
     });
 

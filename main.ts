@@ -34,6 +34,10 @@ interface QuildenSyncSettings {
   commitMessage: string;
   conflictStrategy: "local" | "remote" | "newer";
   notificationLocation: "notice" | "statusbar" | "none";
+  /** Git provider: "github" (default) or "gitea" for self-hosted */
+  provider: "github" | "gitea";
+  /** Base URL of the Gitea instance, e.g. https://git.example.com */
+  giteaBaseUrl: string;
 }
 
 interface SyncedFileState {
@@ -92,6 +96,8 @@ const DEFAULT_SETTINGS: QuildenSyncSettings = {
   commitMessage: "Quilden Sync: Update from Obsidian",
   conflictStrategy: "newer",
   notificationLocation: "statusbar",
+  provider: "github",
+  giteaBaseUrl: "",
 };
 
 const REQUIRED_EXCLUDE_PATTERNS = [".obsidian/", ".trash/", ".DS_Store"];
@@ -427,16 +433,27 @@ class GitHubAPI {
   private owner: string;
   private repo: string;
   private branch: string;
+  private apiBase: string;
+  private webBase: string;
 
-  constructor(token: string, owner: string, repo: string, branch: string) {
+  constructor(
+    token: string,
+    owner: string,
+    repo: string,
+    branch: string,
+    apiBase = "https://api.github.com",
+    webBase = "https://github.com",
+  ) {
     this.token = token;
     this.owner = owner;
     this.repo = repo;
     this.branch = branch;
+    this.apiBase = apiBase.replace(/\/$/, "");
+    this.webBase = webBase.replace(/\/$/, "");
   }
 
   private async request(method: string, path: string, body?: unknown, _attempt = 0): Promise<any> {
-    const url = `https://api.github.com${path}`;
+    const url = `${this.apiBase}${path}`;
     const MAX_RETRIES = 4;
     const RETRY_DELAYS_MS = [1000, 3000, 8000, 20000]; // exponential-ish backoff
 
@@ -487,9 +504,9 @@ class GitHubAPI {
     return res.json;
   }
 
-  static async verifyToken(token: string): Promise<{ login: string; avatar_url: string }> {
+  static async verifyToken(token: string, apiBase = "https://api.github.com"): Promise<{ login: string; avatar_url: string }> {
     const res = await requestUrl({
-      url: "https://api.github.com/user",
+      url: `${apiBase}/user`,
       method: "GET",
       headers: ghHeaders(token),
       throw: false,
@@ -498,35 +515,37 @@ class GitHubAPI {
     return res.json;
   }
 
-  static async fetchRepos(token: string): Promise<Array<{ full_name: string; private: boolean }>> {
-    const res = await requestUrl({
-      url: "https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator",
-      method: "GET",
-      headers: ghHeaders(token),
-      throw: false,
-    });
+  static async fetchRepos(token: string, apiBase = "https://api.github.com"): Promise<Array<{ full_name: string; private: boolean }>> {
+    const isGitea = apiBase !== "https://api.github.com";
+    const url = isGitea
+      ? `${apiBase}/repos/search?limit=50&sort=newest&token=${encodeURIComponent(token)}`
+      : `${apiBase}/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator`;
+    const res = await requestUrl({ url, method: "GET", headers: ghHeaders(token), throw: false });
     const scopes = res.headers?.["x-oauth-scopes"] ?? "n/a";
     const remaining = res.headers?.["x-ratelimit-remaining"] ?? "?";
     const resetEpoch = res.headers?.["x-ratelimit-reset"];
     const resetTime = resetEpoch ? new Date(Number(resetEpoch) * 1000).toLocaleTimeString() : "unknown";
     console.log(`[LM] fetchRepos status=${res.status} scopes="${scopes}" rate=${remaining} remaining reset=${resetTime}`);
     if (res.status === 403 || res.status === 429) {
-      throw new Error(`GitHub rate limit exceeded — resets at ${resetTime}. Wait and try again.`);
+      throw new Error(`Rate limit exceeded — resets at ${resetTime}. Wait and try again.`);
     }
     if (res.status >= 400) {
       const msg = res.json?.message ?? res.status;
       throw new Error(`${res.status}: ${msg}`);
     }
-    return res.json;
+    // Gitea search returns { data: [...] }; GitHub returns array directly
+    const repos = Array.isArray(res.json) ? res.json : (res.json?.data ?? []);
+    return repos;
   }
 
   static async createRepo(
     token: string,
     name: string,
-    isPrivate: boolean
+    isPrivate: boolean,
+    apiBase = "https://api.github.com",
   ): Promise<{ full_name: string; private: boolean }> {
     const res = await requestUrl({
-      url: "https://api.github.com/user/repos",
+      url: `${apiBase}/user/repos`,
       method: "POST",
       headers: ghHeaders(token, { "Content-Type": "application/json" }),
       body: JSON.stringify({ name, private: isPrivate, auto_init: true }),
@@ -536,9 +555,9 @@ class GitHubAPI {
     return res.json;
   }
 
-  static async fetchBranches(token: string, owner: string, repo: string): Promise<string[]> {
+  static async fetchBranches(token: string, owner: string, repo: string, apiBase = "https://api.github.com"): Promise<string[]> {
     const res = await requestUrl({
-      url: `https://api.github.com/repos/${owner}/${repo}/branches?per_page=100`,
+      url: `${apiBase}/repos/${owner}/${repo}/branches?per_page=100`,
       method: "GET",
       headers: ghHeaders(token),
       throw: false,
@@ -695,7 +714,7 @@ class GitHubAPI {
   }
 
   getCommitUrl(sha: string): string {
-    return `https://github.com/${this.owner}/${this.repo}/commit/${sha}`;
+    return `${this.webBase}/${this.owner}/${this.repo}/commit/${sha}`;
   }
 
   async restoreToCommit(targetSha: string, message: string): Promise<string> {
@@ -1395,10 +1414,7 @@ export default class QuildenSyncPlugin extends Plugin {
           new Notice("Quilden Sync: Configure your repo first.");
           return;
         }
-        const api = new GitHubAPI(
-          this.settings.githubToken, this.settings.repoOwner,
-          this.settings.repoName, this.settings.branch
-        );
+        const api = this.buildGitAPI();
         new BranchTimelineModal(this.app, api, this).open();
       },
     });
@@ -1752,7 +1768,34 @@ export default class QuildenSyncPlugin extends Plugin {
   }
 
   isConfigured(): boolean {
-    return !!(this.settings.githubToken && this.settings.repoOwner && this.settings.repoName);
+    if (!this.settings.githubToken || !this.settings.repoOwner || !this.settings.repoName) return false;
+    if (this.settings.provider === "gitea" && !this.settings.giteaBaseUrl) return false;
+    return true;
+  }
+
+  resolveApiBase(): string {
+    if (this.settings.provider === "gitea" && this.settings.giteaBaseUrl) {
+      return `${this.settings.giteaBaseUrl.replace(/\/$/, "")}/api/v1`;
+    }
+    return "https://api.github.com";
+  }
+
+  resolveWebBase(): string {
+    if (this.settings.provider === "gitea" && this.settings.giteaBaseUrl) {
+      return this.settings.giteaBaseUrl.replace(/\/$/, "");
+    }
+    return "https://github.com";
+  }
+
+  buildGitAPI(): GitHubAPI {
+    return new GitHubAPI(
+      this.settings.githubToken,
+      this.settings.repoOwner,
+      this.settings.repoName,
+      this.settings.branch || "main",
+      this.resolveApiBase(),
+      this.resolveWebBase(),
+    );
   }
 
   private setupAutoSync() {
@@ -1886,12 +1929,7 @@ export default class QuildenSyncPlugin extends Plugin {
       return;
     }
 
-    const api = new GitHubAPI(
-      this.settings.githubToken,
-      this.settings.repoOwner,
-      this.settings.repoName,
-      this.settings.branch
-    );
+    const api = this.buildGitAPI();
 
     new Notice("Scanning repo for unencrypted files…");
     const { blobs: tree } = await api.getTree();
@@ -1954,12 +1992,7 @@ export default class QuildenSyncPlugin extends Plugin {
       return;
     }
 
-    const api = new GitHubAPI(
-      this.settings.githubToken,
-      this.settings.repoOwner,
-      this.settings.repoName,
-      this.settings.branch
-    );
+    const api = this.buildGitAPI();
 
     new Notice("Scanning repo for encrypted files…");
     const { blobs: tree } = await api.getTree();
@@ -2147,12 +2180,7 @@ export default class QuildenSyncPlugin extends Plugin {
       return;
     }
 
-    const api = new GitHubAPI(
-      this.settings.githubToken,
-      this.settings.repoOwner,
-      this.settings.repoName,
-      this.settings.branch,
-    );
+    const api = this.buildGitAPI();
 
     // Fast path: use syncState as candidate list instead of fetching the full remote tree.
     // Only media files already tracked in syncState could have been stored as QENC blobs.
@@ -2298,7 +2326,7 @@ export default class QuildenSyncPlugin extends Plugin {
 
     // ── New device: no local token — verify via repo ─────────────────────────
     const VERIFY_PATH = ".quilden/encryption-verify";
-    const api = new GitHubAPI(githubToken, repoOwner, repoName, branch);
+    const api = this.buildGitAPI();
     const salt = await contextSalt(githubUsername, repoOwner, repoName);
     const candidateKey = await buildKey(password, salt);
 
@@ -2402,7 +2430,7 @@ export default class QuildenSyncPlugin extends Plugin {
       return;
     }
     console.log(`[LM] openFileHistory: repo=${repoOwner}/${repoName}@${branch}`);
-    const api = new GitHubAPI(githubToken, repoOwner, repoName, branch);
+    const api = this.buildGitAPI();
     new FileHistoryModal(this.app, file, api, encryptionEnabled).open();
   }
 
@@ -2431,13 +2459,16 @@ export default class QuildenSyncPlugin extends Plugin {
         url: `${QUILDEN_BASE}/api/auth/from-pat`,
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: this.settings.githubToken }),
+        body: JSON.stringify({
+          token: this.settings.githubToken,
+          ...(this.settings.provider === "gitea" ? { provider: "gitea", baseUrl: this.settings.giteaBaseUrl } : {}),
+        }),
         throw: false,
       });
 
       if (res.status === 401) {
         if (statusEl) statusEl.setText("Token rejected by server.");
-        new Notice("Quilden: GitHub token is invalid or expired. Reconnect with a fresh token.", 6000);
+        new Notice("Quilden: Token is invalid or expired. Reconnect with a fresh token.", 6000);
         return;
       }
       if (res.status >= 400) {
@@ -2480,34 +2511,34 @@ export default class QuildenSyncPlugin extends Plugin {
   }
 
   private async verifySyncAccess(): Promise<void> {
+    const apiBase = this.resolveApiBase();
+    const providerName = this.settings.provider === "gitea" ? "Gitea" : "GitHub";
     const tokenCheck = await requestUrl({
-      url: "https://api.github.com/user",
+      url: `${apiBase}/user`,
       method: "GET",
       headers: ghHeaders(this.settings.githubToken),
       throw: false,
     });
 
     if (tokenCheck.status === 401) {
-      // Attempt silent refresh before giving up
+      // Attempt silent refresh before giving up (GitHub OAuth tokens only)
       const refreshed = await this.tryRefreshToken();
       if (!refreshed) {
-        throw new Error("GitHub token is invalid or expired. Disconnect and reconnect.");
+        throw new Error(`${providerName} token is invalid or expired. Disconnect and reconnect.`);
       }
       // Token just came from our auth server — trust it without re-verifying immediately.
-      // GitHub has a brief propagation delay after issuing a new token; re-checking right
-      // away would get a false 401 and show a spurious "token expired" notification.
       return;
     }
 
     if (tokenCheck.status >= 400) {
       const message = tokenCheck.json?.message ?? tokenCheck.status;
-      throw new Error(`Unable to verify GitHub token (${tokenCheck.status}: ${message})`);
+      throw new Error(`Unable to verify ${providerName} token (${tokenCheck.status}: ${message})`);
     }
 
     const scopes = tokenCheck.headers?.["x-oauth-scopes"] ?? "";
     console.log(`[LM] token scopes: "${scopes}"`);
 
-    const repoUrl = `https://api.github.com/repos/${this.settings.repoOwner}/${this.settings.repoName}`;
+    const repoUrl = `${apiBase}/repos/${this.settings.repoOwner}/${this.settings.repoName}`;
     const repoCheck = await requestUrl({
       url: repoUrl,
       method: "GET",
@@ -2517,7 +2548,7 @@ export default class QuildenSyncPlugin extends Plugin {
 
     if (repoCheck.status === 404) {
       throw new Error(
-        `GitHub token cannot access ${this.settings.repoOwner}/${this.settings.repoName}. ` +
+        `${providerName} token cannot access ${this.settings.repoOwner}/${this.settings.repoName}. ` +
         "Reconnect and grant that repository, or choose a different repo."
       );
     }
@@ -2527,9 +2558,9 @@ export default class QuildenSyncPlugin extends Plugin {
       const resetTime = resetEpoch ? new Date(Number(resetEpoch) * 1000).toLocaleTimeString() : "unknown";
       const message = repoCheck.json?.message ?? repoCheck.status;
       if (repoCheck.headers?.["x-ratelimit-remaining"] === "0") {
-        throw new Error(`GitHub rate limit exceeded — resets at ${resetTime}. Wait and try again.`);
+        throw new Error(`${providerName} rate limit exceeded — resets at ${resetTime}. Wait and try again.`);
       }
-      throw new Error(`GitHub denied access to ${this.settings.repoOwner}/${this.settings.repoName} (${message}).`);
+      throw new Error(`${providerName} denied access to ${this.settings.repoOwner}/${this.settings.repoName} (${message}).`);
     }
 
     if (repoCheck.status >= 400) {
@@ -2540,7 +2571,7 @@ export default class QuildenSyncPlugin extends Plugin {
     const permissions = repoCheck.json?.permissions as RepoPermissionSummary | undefined;
     if (permissions && !permissions.admin && !permissions.maintain && !permissions.push) {
       throw new Error(
-        `GitHub token can read ${this.settings.repoOwner}/${this.settings.repoName} but cannot push to it. ` +
+        `${providerName} token can read ${this.settings.repoOwner}/${this.settings.repoName} but cannot push to it. ` +
         "Reconnect and grant write access."
       );
     }
@@ -2577,12 +2608,7 @@ export default class QuildenSyncPlugin extends Plugin {
     try {
       await this.verifySyncAccess();
 
-      const api = new GitHubAPI(
-        this.settings.githubToken,
-        this.settings.repoOwner,
-        this.settings.repoName,
-        this.settings.branch
-      );
+      const api = this.buildGitAPI();
 
       let justDeleted: ReadonlySet<string> = new Set();
       if (mode === "push" || mode === "full") justDeleted = await this.pushChanges(api, "incremental");
@@ -3686,7 +3712,7 @@ class QuildenSyncSettingTab extends PluginSettingTab {
           .addButton((btn) =>
             btn.setButtonText("Open timeline").onClick(() => {
               const { githubToken, repoOwner, repoName, branch } = this.plugin.settings;
-              const api = new GitHubAPI(githubToken, repoOwner, repoName, branch);
+              const api = this.plugin.buildGitAPI();
               new BranchTimelineModal(this.plugin.app, api, this.plugin).open();
             })
           );
@@ -3698,7 +3724,7 @@ class QuildenSyncSettingTab extends PluginSettingTab {
   // Interactive GitHub connection wizard
   // ─────────────────────────────────────────────────────────────
   private renderConnectionWizard(containerEl: HTMLElement, generation: number) {
-    containerEl.createEl("h3", { text: "GitHub Connection", cls: "lm-settings-section-title" });
+    containerEl.createEl("h3", { text: "Repository Connection", cls: "lm-settings-section-title" });
     const isConnected = !!(this.plugin.settings.githubToken && this.plugin.settings.githubUsername);
     if (isConnected) {
       this.renderConnectedState(containerEl, generation);
@@ -3714,9 +3740,12 @@ class QuildenSyncSettingTab extends PluginSettingTab {
     const currentRepo = settings.repoOwner ? `${settings.repoOwner}/${settings.repoName}` : "";
 
     // ── Username + Disconnect ──
+    const providerLabel = settings.provider === "gitea"
+      ? `Gitea (${settings.giteaBaseUrl || "self-hosted"}) ✓`
+      : "Connected to GitHub ✓";
     new Setting(containerEl)
       .setName(`@${settings.githubUsername}`)
-      .setDesc("Connected to GitHub ✓")
+      .setDesc(providerLabel)
       .addButton((btn) =>
         btn.setButtonText("Disconnect").onClick(async () => {
           this.plugin.settings.githubToken = "";
@@ -3724,6 +3753,8 @@ class QuildenSyncSettingTab extends PluginSettingTab {
           this.plugin.settings.repoOwner = "";
           this.plugin.settings.repoName = "";
           this.plugin.settings.branch = "main";
+          this.plugin.settings.provider = "github";
+          this.plugin.settings.giteaBaseUrl = "";
           this.allRepos = [];
           await this.plugin.saveSettings();
           this.display();
@@ -3799,7 +3830,7 @@ class QuildenSyncSettingTab extends PluginSettingTab {
         changeBranchButton.disabled = true;
 
         try {
-          const branches = await GitHubAPI.fetchBranches(settings.githubToken, settings.repoOwner, settings.repoName);
+          const branches = await GitHubAPI.fetchBranches(settings.githubToken, settings.repoOwner, settings.repoName, this.plugin.resolveApiBase());
           if (this.renderGeneration !== generation || !branchDropdown.selectEl.isConnected) return;
 
           const nextValue = branches.includes(this.plugin.settings.branch || "main")
@@ -3906,7 +3937,7 @@ class QuildenSyncSettingTab extends PluginSettingTab {
         if (this.allRepos.length > 0) { populateDropdown(); return; }
         loadingRepos = true;
         try {
-          this.allRepos = await GitHubAPI.fetchRepos(settings.githubToken);
+          this.allRepos = await GitHubAPI.fetchRepos(settings.githubToken, this.plugin.resolveApiBase());
           if (this.renderGeneration !== generation || !containerEl.isConnected) return;
           populateDropdown();
         } catch (error) {
@@ -3961,6 +3992,85 @@ class QuildenSyncSettingTab extends PluginSettingTab {
     const statusEl = containerEl.createEl("div", { cls: "setting-item-description" });
     const errorEl = containerEl.createEl("div", { cls: "setting-item-description" });
 
+    // ── Provider selector ──────────────────────────────────────────
+    const { settings } = this.plugin;
+    new Setting(containerEl)
+      .setName("Git provider")
+      .setDesc("Choose GitHub or a self-hosted Gitea instance.")
+      .addDropdown((d) => {
+        d.addOption("github", "GitHub");
+        d.addOption("gitea", "Gitea (self-hosted)");
+        d.setValue(settings.provider ?? "github");
+        d.onChange(async (v) => {
+          settings.provider = v as "github" | "gitea";
+          await this.plugin.saveSettings();
+          this.display();
+        });
+      });
+
+    if (settings.provider === "gitea") {
+      // ── Gitea URL + PAT connect ────────────────────────────────
+      let giteaUrlInput = "";
+      let giteaPatInput = "";
+      const giteaStatusEl = containerEl.createEl("div", { cls: "setting-item-description" });
+
+      new Setting(containerEl)
+        .setName("Gitea URL")
+        .setDesc("Base URL of your Gitea instance (e.g. https://git.example.com)")
+        .addText((t) => {
+          t.setPlaceholder("https://git.example.com");
+          t.setValue(settings.giteaBaseUrl ?? "");
+          t.onChange((v) => { giteaUrlInput = v.trim(); });
+          t.inputEl.style.width = "260px";
+        });
+
+      new Setting(containerEl)
+        .setName("Personal Access Token")
+        .setDesc("Generate a token in Gitea → Settings → Applications.")
+        .addText((t) => {
+          t.setPlaceholder("Gitea access token");
+          t.inputEl.type = "password";
+          t.onChange((v) => { giteaPatInput = v.trim(); });
+          t.inputEl.style.width = "260px";
+        })
+        .addButton((btn) =>
+          btn.setButtonText("Connect").setCta().onClick(async () => {
+            const url = giteaUrlInput || settings.giteaBaseUrl;
+            const pat = giteaPatInput;
+            if (!url) { giteaStatusEl.setText("Enter Gitea URL first."); return; }
+            if (!pat) { giteaStatusEl.setText("Enter a Personal Access Token."); return; }
+            btn.setDisabled(true);
+            btn.setButtonText("Verifying…");
+            giteaStatusEl.setText("");
+            try {
+              let apiBase: string;
+              try {
+                apiBase = `${new URL(url).origin}/api/v1`;
+              } catch {
+                giteaStatusEl.setText("Invalid URL format.");
+                return;
+              }
+              const user = await GitHubAPI.verifyToken(pat, apiBase);
+              settings.githubToken = pat;
+              settings.githubUsername = user.login;
+              settings.giteaBaseUrl = new URL(url).origin;
+              settings.provider = "gitea";
+              await this.plugin.saveSettings();
+              new Notice(`Quilden Sync: Connected to Gitea as @${user.login} ✓`);
+              this.display();
+            } catch (e: any) {
+              giteaStatusEl.setText(`Connection failed: ${e.message}`);
+            } finally {
+              btn.setDisabled(false);
+              btn.setButtonText("Connect");
+            }
+          })
+        );
+
+      return; // Gitea PAT-only — no polling needed
+    }
+
+    // ── GitHub OAuth flow ──────────────────────────────────────────
     let pollCount = 0;
     const MAX_POLLS = 100; // ~5 minutes at 3 s intervals
 

